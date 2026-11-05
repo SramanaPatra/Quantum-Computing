@@ -67,7 +67,7 @@ with col2:
 
 if st.button("Predict Performance"):
     # Process user input directly
-    user_input = np.array([[studytime, failures, absences, freetime, health]])
+    user_input = pd.DataFrame([[studytime, failures, absences, freetime, health]], columns=['studytime', 'failures', 'absences', 'freetime', 'health'])
     X_scaled = scaler.transform(user_input)
     
     # Predict
