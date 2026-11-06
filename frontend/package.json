@@ -10,14 +10,22 @@
     "preview": "vite preview"
   },
   "dependencies": {
+    "@react-three/drei": "^10.7.9",
+    "@react-three/fiber": "^9.8.2",
     "@tailwindcss/vite": "^4.3.4",
+    "@types/papaparse": "^5.5.2",
+    "@types/three": "^0.187.0",
     "autoprefixer": "^10.6.2",
     "framer-motion": "^14.9.1",
+    "html2canvas": "^1.4.1",
+    "jspdf": "^4.2.1",
     "lucide-react": "^1.69.0",
+    "papaparse": "^5.7.0",
     "postcss": "^8.5.32",
     "react": "^19.3.1",
     "react-dom": "^19.3.1",
-    "tailwindcss": "^4.3.4"
+    "tailwindcss": "^4.3.4",
+    "three": "^0.187.0"
   },
   "devDependencies": {
     "@types/node": "^24.19.2",

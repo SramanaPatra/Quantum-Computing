@@ -1,105 +1,212 @@
-import { useState } from 'react';
-import { motion } from 'framer-motion';
-import { HelpCircle } from 'lucide-react';
+import { useState, useCallback, useEffect, useRef } from 'react';
+import { motion, AnimatePresence } from 'framer-motion';
+import { Download } from 'lucide-react';
 
 import { ParticleBackground } from './components/ParticleBackground';
-import { Header } from './components/Header';
-import { HeroSection } from './components/HeroSection';
-import { ControlPanel } from './components/ControlPanel';
-import { QuantumCircuit } from './components/QuantumCircuit';
-import { PredictionCard } from './components/PredictionCard';
-import { BenchmarkSection } from './components/BenchmarkSection';
-import { ExplainerModal } from './components/ExplainerModal';
+import { NebulaBackground }   from './components/NebulaBackground';
+import { Header }             from './components/Header';
+import { HeroSection }        from './components/HeroSection';
+import { ControlPanel }       from './components/ControlPanel';
+import { QuantumCircuit }     from './components/QuantumCircuit';
+import { PredictionCard }     from './components/PredictionCard';
+import { BlochSphere }        from './components/BlochSphere';
+import { WhatIfOptimizer }    from './components/WhatIfOptimizer';
+import { BatchPrediction }    from './components/BatchPrediction';
+import { BenchmarkSection }   from './components/BenchmarkSection';
+import { ExplainerModal }     from './components/ExplainerModal';
 
 import { simulateQuantum, type StudentProfile, type PredictionResult } from './quantumEngine';
+import { findWhatIfOptimization, type WhatIfResult } from './whatIfEngine';
+import { predict, checkBackendHealth }                 from './apiClient';
+
+type Tab = 'studio' | 'batch' | 'benchmark';
 
 const DEFAULT_PROFILE: StudentProfile = {
-  studytime: 2,
-  failures: 0,
-  absences: 4,
-  freetime: 3,
-  health: 3,
+  studytime: 2, failures: 0, absences: 4, freetime: 3, health: 3,
 };
 
 function App() {
-  const [profile, setProfile] = useState<StudentProfile>(DEFAULT_PROFILE);
-  const [result, setResult]   = useState<PredictionResult | null>(null);
-  const [running, setRunning] = useState(false);
-  const [explainer, setExplainer] = useState(false);
+  const [profile,       setProfile]       = useState<StudentProfile>(DEFAULT_PROFILE);
+  const [result,        setResult]        = useState<PredictionResult | null>(null);
+  const [whatIf,        setWhatIf]        = useState<WhatIfResult | null>(null);
+  const [running,       setRunning]       = useState(false);
+  const [flash,         setFlash]         = useState(false);
+  const [explainer,     setExplainer]     = useState(false);
+  const [tab,           setTab]           = useState<Tab>('studio');
+  const [backendMode,   setBackendMode]   = useState<'mock' | 'real'>('mock');
+  const [backendOnline, setBackendOnline] = useState(false);
+  const reportRef = useRef<HTMLDivElement>(null);
 
-  // Live theta update (circuit reacts to sliders in real time)
-  const liveResult = simulateQuantum(profile);
+  /* Live circuit angles always reflect sliders */
+  const liveTheta = simulateQuantum(profile).theta;
 
-  const handleSimulate = () => {
+  /* Health-check backend every 5s when in real mode */
+  useEffect(() => {
+    if (backendMode !== 'real') return;
+    const check = async () => setBackendOnline(await checkBackendHealth());
+    check();
+    const id = setInterval(check, 5000);
+    return () => clearInterval(id);
+  }, [backendMode]);
+
+  const handleSimulate = useCallback(async () => {
     setRunning(true);
     setResult(null);
-    // 600ms mock quantum shot delay
-    setTimeout(() => {
-      setResult(simulateQuantum(profile));
+    setWhatIf(null);
+    setFlash(true);
+    setTimeout(() => setFlash(false), 500);
+
+    try {
+      const r = await predict(profile, backendMode === 'real' && backendOnline);
+      setResult(r);
+      if (r.prediction === 'FAIL') {
+        setWhatIf(findWhatIfOptimization(profile));
+      }
+    } catch (err) {
+      console.error(err);
+    } finally {
       setRunning(false);
-    }, 650);
+    }
+  }, [profile, backendMode, backendOnline]);
+
+  const applyOptimized = (p: StudentProfile) => {
+    setProfile(p);
+    setResult(null);
+    setWhatIf(null);
   };
 
+  /* PDF export */
+  const exportPDF = async () => {
+    if (!result || !reportRef.current) return;
+    const { default: html2canvas } = await import('html2canvas');
+    const { jsPDF } = await import('jspdf');
+    const canvas = await html2canvas(reportRef.current, { backgroundColor: '#050814', scale: 2 });
+    const img = canvas.toDataURL('image/png');
+    const pdf = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
+    const w = pdf.internal.pageSize.getWidth();
+    const h = (canvas.height / canvas.width) * w;
+    pdf.addImage(img, 'PNG', 0, 0, w, h);
+    pdf.save('QuLearn_Report.pdf');
+  };
+
+  const TABS: { key: Tab; label: string }[] = [
+    { key: 'studio',    label: '⚛ Quantum Studio'     },
+    { key: 'batch',     label: '📋 Batch Prediction'   },
+    { key: 'benchmark', label: '📊 Benchmark'           },
+  ];
+
   return (
-    <div className="min-h-screen relative" style={{ background: 'linear-gradient(135deg, #050814 0%, #0B112C 50%, #050814 100%)' }}>
-      {/* Atmospheric */}
+    <div className="min-h-screen relative"
+      style={{ background: 'linear-gradient(135deg, #050814 0%, #0B112C 50%, #050814 100%)' }}>
+
+      {/* Atmospheric layers */}
+      <NebulaBackground />
       <ParticleBackground />
       <div className="scan-line" />
 
-      {/* Radial glow spots */}
-      <div className="fixed top-1/4 left-1/4 w-96 h-96 rounded-full pointer-events-none"
-        style={{ background: 'radial-gradient(circle, rgba(0,245,255,0.04) 0%, transparent 70%)' }} />
-      <div className="fixed bottom-1/4 right-1/4 w-80 h-80 rounded-full pointer-events-none"
-        style={{ background: 'radial-gradient(circle, rgba(189,0,255,0.04) 0%, transparent 70%)' }} />
-
       {/* Header */}
-      <Header />
+      <Header
+        backendMode={backendMode}
+        backendOnline={backendOnline}
+        onToggleBackend={() => setBackendMode(m => m === 'mock' ? 'real' : 'mock')}
+        onOpenExplainer={() => setExplainer(true)}
+      />
 
       {/* Hero */}
       <HeroSection />
 
-      {/* Prediction Studio */}
-      <section className="relative z-10 max-w-7xl mx-auto px-6 pb-10">
-        <div className="text-xs text-slate-500 uppercase tracking-widest font-mono mb-6 flex items-center gap-3">
-          <span className="flex-1 h-px bg-slate-800" />
-          Interactive Quantum Prediction Studio
-          <span className="flex-1 h-px bg-slate-800" />
+      {/* Tab Nav */}
+      <div className="relative z-10 max-w-7xl mx-auto px-6 mb-6">
+        <div className="flex gap-2 glass rounded-xl p-1 border border-cyan-500/15 w-fit">
+          {TABS.map(t => (
+            <button key={t.key} onClick={() => setTab(t.key)}
+              className={`px-4 py-2 rounded-lg text-xs font-share-mono transition-all
+                ${tab === t.key
+                  ? 'bg-cyan-500/20 text-cyan-300 border border-cyan-500/40'
+                  : 'text-slate-500 hover:text-slate-300'
+                }`}
+            >
+              {t.label}
+            </button>
+          ))}
         </div>
+      </div>
 
-        <div className="grid lg:grid-cols-2 gap-5">
-          {/* Left: Control */}
-          <ControlPanel
-            profile={profile}
-            onChange={setProfile}
-            onSimulate={handleSimulate}
-            isRunning={running}
-          />
+      {/* Main content */}
+      <AnimatePresence mode="wait">
+        {tab === 'studio' && (
+          <motion.section key="studio"
+            initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }}
+            className="relative z-10 max-w-7xl mx-auto px-6 pb-10"
+          >
+            {/* Export button */}
+            {result && (
+              <div className="flex justify-end mb-3">
+                <button onClick={exportPDF}
+                  className="flex items-center gap-2 px-4 py-2 glass rounded-lg border border-violet-500/30
+                    text-violet-400 text-xs font-share-mono hover:border-violet-400/60 transition-all">
+                  <Download size={12} /> Export PDF Report
+                </button>
+              </div>
+            )}
 
-          {/* Right: Circuit + Output */}
-          <div className="flex flex-col gap-4">
-            <QuantumCircuit theta={liveResult.theta} isRunning={running} />
-            <PredictionCard result={result} isRunning={running} />
-          </div>
-        </div>
-      </section>
+            {/* Studio grid */}
+            <div ref={reportRef} className="grid lg:grid-cols-2 gap-5">
+              {/* Left col */}
+              <div className="flex flex-col gap-4">
+                <ControlPanel
+                  profile={profile}
+                  onChange={setProfile}
+                  onSimulate={handleSimulate}
+                  isRunning={running}
+                />
+                {/* What-If Optimizer (shown after FAIL) */}
+                {whatIf && (
+                  <WhatIfOptimizer result={whatIf} onApply={applyOptimized} />
+                )}
+              </div>
 
-      {/* Benchmark */}
-      <BenchmarkSection />
+              {/* Right col */}
+              <div className="flex flex-col gap-4">
+                <QuantumCircuit theta={liveTheta} isRunning={running} />
 
-      {/* Footer / Explainer trigger */}
-      <footer className="relative z-10 max-w-7xl mx-auto px-6 pb-10 flex justify-center">
-        <motion.button
-          whileHover={{ scale: 1.05 }}
-          whileTap={{ scale: 0.97 }}
-          onClick={() => setExplainer(true)}
-          className="flex items-center gap-2 px-5 py-2.5 glass border border-violet-500/25 rounded-full
-            text-violet-400 text-sm font-mono hover:border-violet-400/50 hover:shadow-[0_0_20px_rgba(189,0,255,0.15)]
-            transition-all"
-        >
-          <HelpCircle size={16} />
-          How Does Quantum ML Work Here?
-        </motion.button>
-      </footer>
+                {/* Bloch sphere (shows after prediction) */}
+                {result && (
+                  <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }}>
+                    <BlochSphere
+                      alpha={result.alpha}
+                      beta={result.beta}
+                      prediction={result.prediction}
+                    />
+                  </motion.div>
+                )}
+
+                <PredictionCard
+                  result={result}
+                  isRunning={running}
+                  predictionFlash={flash}
+                />
+              </div>
+            </div>
+          </motion.section>
+        )}
+
+        {tab === 'batch' && (
+          <motion.section key="batch"
+            initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }}
+            className="relative z-10 max-w-4xl mx-auto px-6 pb-10"
+          >
+            <BatchPrediction />
+          </motion.section>
+        )}
+
+        {tab === 'benchmark' && (
+          <motion.section key="benchmark"
+            initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }}>
+            <BenchmarkSection />
+          </motion.section>
+        )}
+      </AnimatePresence>
 
       {/* Explainer drawer */}
       <ExplainerModal open={explainer} onClose={() => setExplainer(false)} />
@@ -108,4 +215,3 @@ function App() {
 }
 
 export default App;
-
